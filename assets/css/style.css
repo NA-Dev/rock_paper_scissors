@@ -203,7 +203,7 @@ tbody {
 
 /*--- Hide on Game Start ---*/
 .hide {
-  display: none;
+  /*display: none;*/
 }
 
 /*--- Footer ---*/

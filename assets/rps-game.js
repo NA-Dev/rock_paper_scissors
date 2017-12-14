@@ -3,7 +3,8 @@
 var currentUser = {};
 var snapshot = {};
 var maxCount = 2;
-var database, gameRef, playersRef, chatRef, usersRef, userRef;
+var database, countRef, statusRef, playersRef,
+  chatRef, usersRef, userRef, playerRef;
 
 var fireBase = {
 
@@ -33,8 +34,6 @@ var fireBase = {
                 //folder will be removed when user session ends
                 userRef.onDisconnect().remove();
                 userRef.set("");
-
-
             } else {
                 // No user is signed in.
                 firebase.auth().signInAnonymouslyAndRetrieveData()
@@ -45,6 +44,7 @@ var fireBase = {
                     console.error(errorCode, errorMessage);
                 });
             }
+
         });
 
         fireBase.getSnapshot();
@@ -56,17 +56,31 @@ var fireBase = {
 
         usersRef = database.ref("/users");
         playersRef = database.ref("/players");
-        gameRef = database.ref("/game");
+        countRef = database.ref("/game/count");
+        statusRef = database.ref("/game/status");
         chatRef = database.ref("/chat");
 
-        gameRef.on("value", function(snap) {
+        statusRef.on("value", function(snap) {
             if (snap.val()) {
-                snapshot.game = snap;
-                console.log("game changed");
+                snapshot.status = snap;
+            }
 
-                if (currentUser.joined) {
-                    game.checkReady();
-                }
+            var status = snap.val();
+            console.log("game" + status);
+
+            if ((status === "stopped")
+             && (currentUser.joined)
+             && (!currentUser.inGame)) {
+                 game.checkReady();
+                console.log("check sent by snapshot");
+            } else if (status === "started") {
+                // game.startPlaying();
+            }
+        });
+
+        countRef.on("value", function(snap) {
+            if (snap) {
+                snapshot.count = snap.val();
             }
         });
 
@@ -75,11 +89,12 @@ var fireBase = {
                 snapshot.users = snap;
                 game.updateQueueHTML();
 
-                var x = snap.val().length;
-                var status = snapshot.game.val().status;
-                if ((x < maxCount) && (status = "")) {
-                    gameRef.child("status").set("stopped");
-                }
+                // var x = snap.val().length;
+                // var status = snapshot.status.val();
+                // if ((x < maxCount) && (status = "")) {
+                //     statusRef.set("stopped");
+                //     game.restart();
+                // }
             }
         });
 
@@ -87,13 +102,24 @@ var fireBase = {
             if (snap.val()) {
                 snapshot.players = snap;
                 game.updatePlayerHTML();
+                var count = snap.numChildren();
+            } else {
+                var count = 0;
+            }
+            countRef.set(count);
 
-                var x = snap.val().length;
-                var status = snapshot.game.val().status;
-                console.log("dropPlayer", (x < maxCount), status);
-                if ((x < maxCount) && (status = "started")) {
-                    gameRef.child("status").set("stopped");
-                }
+            var status = snapshot.status.val();
+            console.log(count + " players");
+
+            if ((count < maxCount) && (status === "started")) {
+                statusRef.set("stopped");
+                game.restart();
+            } else if (
+              (count === maxCount)
+              && (status === "stopped")
+              && (currentUser.inGame)) {
+                statusRef.set("started");
+                game.startPlaying();
             }
         });
 
@@ -119,6 +145,7 @@ var game = {
 
             var time = moment().format("YYYYMMDDhhmmss");
             var name = $("#name").val().trim();
+            $("#name").val("");
 
 
             currentUser.username = name;
@@ -133,118 +160,151 @@ var game = {
             userRef.onDisconnect().remove();
             userRef.set(currentUser);
 
-            $("#name").val("");
-            $("#banner").text("Getting Game Ready");
-            $(".player, .chat, .queue").removeClass("hide");
 
+            $("#banner").text("Getting Game Ready");
+            $(".player, .chat, .message, .queue").removeClass("hide");
+            $("#welcome").addClass("hide");
+
+            console.log("check sent by join");
             game.checkReady();
         });
 
-        // $("#send").on("click", function sendChat(event) {
-        //     event.preventDefault();
-        //     var text = $("#message").val().trim();
-        //     var chatRef = firebase.database().ref('chat/' + (countChat + 1));
-        //     chatRef.set({
-        //         username: name,
-        //         message: text,
-        //     });
-        // });
+        $("#send").on("click", function sendChat(event) {
+            event.preventDefault();
+            var text = $("#message").val().trim();
+            $("#message").val("");
+
+            if (snapshot.chat) {
+                countChat = snapshot.chat.numChildren();
+            } else {
+                countChat = 0;
+            }
+
+            chatRef.child((countChat + 1)).set({
+                username: currentUser.username,
+                message: text,
+            });
+        });
     },
 
     updatePlayerHTML: function() {
         var i = 0;
+
+        $(".playerHTML").empty();
         snapshot.players.forEach(function(childSnap) {
             $(`#p${i}Name`).text(childSnap.val().username);
             $(`#p${i}Score`).text(childSnap.val().score);
+
+            if (childSnap.val().id === currentUser.id) {
+                $(`#p${i}`).addClass("currentUser");
+            }
+
             i++;
         });
     },
 
     updateQueueHTML: function() {
-        var numUsers = snapshot.users.val().length;
-        for (i = 0; i <= numUsers; i++) {
-            var obj = snapshot.players.val()[i];
+        $("#queue").empty();
+        var numUsers = snapshot.users.numChildren();
 
-            var row = $("<tr>");
-            var cell1 = $("<td>");
-            var cell2 = $("<td>");
-            cell1.text(i-maxCount);
-            cell2.text(obj.username);
-            row.append(cell1, cell2);
-            $("#queue").append(row);
-        }
+        var i = 1;
+        snapshot.users.forEach(function(childSnap) {
+            if (i > maxCount) {
+                var row = $("<tr>");
+                var cell1 = $("<td>");
+                var cell2 = $("<td>");
+                cell1.text(i-maxCount + " - ");
+                cell2.text(childSnap.val().username);
+                row.append(cell1, cell2);
+                $("#queue").append(row);
+            }
+            i++;
+        });
     },
 
     updateChatHTML: function() {
 
         $("#chat").empty();
 
-        snapshot.chat.forEach(function(childSnap){
-            var message = childSnap.val().message;
-            var username = childSnap.val().username;
-            var row = $("<tr>");
-            var cell = $("<td>");
+        if (snapshot.chat) {
+            snapshot.chat.forEach(function(childSnap){
+                var message = childSnap.val().message;
+                var username = childSnap.val().username;
+                var row = $("<tr>");
+                var cell = $("<td>");
 
-            cell.text(username + ": " + message);
-            row.append(cell);
-            $("#chat").append(row);
+                cell.text(username + ": " + message);
+                row.append(cell);
+                $("#chat").append(row);
 
-            var tbody = $("#chat")[0];
-            tbody.scrollTop = tbody.scrollHeight;
-        });
+                var tbody = $("#chat")[0];
+                tbody.scrollTop = tbody.scrollHeight;
+            });
+        }
     },
 
     updateGameHTML: function() {
     },
 
+    restart: function() {
+        chatRef.remove();
+        this.updateChatHTML();
+
+        currentUser.score = 0;
+        userRef.child("score").set(0);
+        playerRef.child("score").set(0);
+        this.updatePlayerHTML();
+    },
+
     checkReady: function() {
         console.log("checkReady");
 
-        var a = snapshot.users.numChildren();
-        var b = snapshot.game.val().status;
-        console.log(a>=maxCount, b);
+        var status = snapshot.status.val();
+        var count = snapshot.count;
 
-        if ((a >= maxCount) && (!(b === "started"))) {
-            console.log("adding self to game");
-                       var key = childSnap.key
-               currentUser.inGame = true;
+        var i = 1;
+        snapshot.users.forEach(function(childSnap) {
+            console.log("checking "+ i);
 
-            var copyRef = playersRef.child(key);
-            copyRef.onDisconnect().remove();
-            copyRef.set(currentUser);
-            userRef.set(currentUser);
-        }
+            if ((i <= maxCount)
+            && (count <= maxCount)
+            && (!(status === "started"))) {
+                console.log("adding self to game");
+                var key = childSnap.key;
+                if (key = currentUser.id) {
+                    console.log("added");
+                    currentUser.inGame = true;
+                    playerRef = playersRef.child(key);
+                    playerRef.onDisconnect().remove();
+                    playerRef.set(currentUser);
+                    userRef.set(currentUser);
+                }
+
+                return true; //breaks firebase forEach() loop
+            }
+            i++
+        });
     },
 
-    enterArena: function() {
-        console.log("entering game");
-        $("#banner").text("Restarting Game");
-        gameRef.child("status").set("started");
+    startPlaying: function() {
+        $("#banner").text("Click Your Weapon");
+        // $(".currentUser > .option").text("Rock");
+        $(".currentUser > .option").on("click", function() {
 
+        });
+    },
 
+    newRound: function() {
 
-    }
+    },
+
+    checkWin: function() {
+
+    },
 }
 
 $(document).ready(function() {
     fireBase.initialize();
 });
-
-
-
-// function startGame() {
-// }
-
-// function attack() {
-
-// }
-
-// function checkWin() {
-
-// }
-
-// function leaveGame() {
-
-// }
 
 
