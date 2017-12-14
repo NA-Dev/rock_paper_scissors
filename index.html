@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en-us">
+
+  <head>
+    <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width,
+        initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="Webpage">
+    <meta name="author" content="Nikki Aaron">
+    <link rel="icon" type="image/png" sizes="32x32"
+      href="assets/images/favicon-32x32.png">
+    <title>Let's play...</title>
+      <!-- Normalize Style Sheet -->
+      <link href="assets/css/normalize.css" rel="stylesheet">
+
+      <!-- Custom Style Sheet -->
+      <link rel="stylesheet" type="text/css" href="assets/css/style.css">
+  </head>
+
+  <body>
+    <div class="container">
+
+      <header>
+        <div id="header-title">
+          <h2>Rock Paper Scissors</h2>
+        </div>
+        <nav>
+          <ul>
+            <li>
+              <a href="https://na-dev.github.io/basic_portfolio_bootstrap/" target="_blank">
+                About
+              </a>
+            </li>
+            <li>
+              <a href="https://na-dev.github.io/basic_portfolio_bootstrap/portfolio.html" target="_blank">
+                Portfolio
+              </a>
+            </li>
+            <li>
+              <a href="https://na-dev.github.io/basic_portfolio_bootstrap/contact.html" target="_blank">
+                Contact
+              </a>
+            </li>
+          </ul>
+        </nav>
+      </header>
+
+      <main>
+        <div class="banner">
+          <h2 id="banner">
+            Welcome to the game
+          </h2>
+          <form id="welcome">
+            <input type="text" id="name" placeholder="enter name">
+            <button type="submit" id="join">
+              Join
+            </button>
+          </form>
+        </div>
+
+        <div class="player panel hide" id="p1">
+          <h3>
+            Player 1:
+            <span id=p1Name></span>
+          </h3>
+
+          <p>
+            Score:
+            <span id=p1Score></span>
+          </p>
+
+          <div class="playerImg">
+          </div>
+
+          <p class="option">
+          </p>
+        </div>
+
+        <div class="player panel hide" id="p2">
+          <h3>
+            Player 2:
+            <span id=p2Name></span>
+          </h3>
+
+          <p>
+            Score:
+            <span id=p1Score></span>
+          </p>
+
+          <div class="playerImg">
+          </div>
+          <p class="option">
+          </p>
+        </div>
+
+        <table class="chat hide">
+          <thead>
+            <tr>
+              <th>
+                Chat:
+              </th>
+            </tr>
+          </thead>
+          <tbody id="chat">
+          </tbody>
+        </table>
+
+        <form class="message hide">
+          <input type="text" id="message" placeholder="enter message">
+          <button type="submit" id="send">
+            Send
+          </button>
+        </form>
+
+        <table class="queue hide">
+          <thead>
+            <tr>
+              <th>
+                Queue (spectating):
+              </th>
+            </tr>
+          </thead>
+          <tbody id="queue">
+          </tbody>
+        </table>
+
+      </main>
+
+      <footer>
+        <span>&copy; Copyright 2017 Nikki Aaron</span>
+      </footer>
+
+    </div>
+
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/4.8.0/firebase.js">
+    </script>
+
+    <!-- jQuery CDN -->
+    <script type="text/javascript"
+      src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js">
+    </script>
+
+    <!-- Link to Moment.js should go here -->
+    <script src="https://cdn.jsdelivr.net/momentjs/2.12.0/moment.min.js"></script>
+
+    <!-- Custom JavaScript -->
+    <script src="assets/rps-game.js" type="text/javascript"></script>
+
+  </body>
+</html>
