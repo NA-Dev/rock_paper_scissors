@@ -2,9 +2,9 @@
 
 var currentUser = {};
 var snapshot = {};
-var maxCount = 2;
-var database, countRef, statusRef, playersRef,
-  chatRef, usersRef, userRef, playerRef;
+var maxCount = 2; //max number of players allowed in game
+
+var database, gameRef, usersRef, chatRef, playersRef, userRef, playerRef;
 
 var fireBase = {
 
@@ -19,114 +19,174 @@ var fireBase = {
             storageBucket: "rkpprssrs.appspot.com",
             messagingSenderId: "433253856407"
         };
+
         firebase.initializeApp(config);
         database = firebase.database();
 
         //Sign user in Anonymously
         firebase.auth().onAuthStateChanged(function(credential) {
+
             if (credential) {
+
                 // User is signed in.
                 var uid = credential.uid;
                 currentUser.uid = uid;
 
-                userRef = database.ref("/users/" + uid);
-                //Creates and stores reference to -> a new /users entry in firebase
-                //folder will be removed when user session ends
-                userRef.onDisconnect().remove();
-                userRef.set("");
             } else {
+
                 // No user is signed in.
                 firebase.auth().signInAnonymouslyAndRetrieveData()
-                .catch(function(error) {
-                    // Handle Errors here.
-                    var errorCode = error.code;
-                    var errorMessage = error.message;
-                    console.error(errorCode, errorMessage);
-                });
+                    .catch(function(error) {
+
+                        // Handle Errors here.
+                        var errorCode = error.code;
+                        var errorMessage = error.message;
+                        console.error(errorCode, errorMessage);
+                    });
             }
 
         });
 
-        fireBase.getSnapshot();
+        this.getSnapshot();
     },
 
     getSnapshot: function() {
 
-        console.log("getSnapshot");
-
+        gameRef = database.ref("/game");
+        statusRef = database.ref("/status");
         usersRef = database.ref("/users");
         playersRef = database.ref("/players");
-        countRef = database.ref("/game/count");
-        statusRef = database.ref("/game/status");
         chatRef = database.ref("/chat");
 
+        gameRef.on("value", function(snap) {
+            console.log("game change");
+
+            if (snap.val()) {
+
+                snapshot.game = snap;
+            }
+
+            var attackCount = 0;
+            if (snap.val().attackCount) {
+
+                attackCount = snap.val().attackCount;
+            }
+
+            if (attackCount === maxCount) {
+                console.log(attackCount);
+                statusRef.set("resolving");
+            }
+        });
+
         statusRef.on("value", function(snap) {
+
             if (snap.val()) {
+
                 snapshot.status = snap;
+                var status = snap.val();
             }
 
-            var status = snap.val();
-            console.log("game" + status);
+            console.log("status: " + status );
 
-            if ((status === "stopped")
-             && (currentUser.joined)
-             && (!currentUser.inGame)) {
-                 game.checkReady();
-                console.log("check sent by snapshot");
-            } else if (status === "started") {
-                // game.startPlaying();
-            }
-        });
+            if ((status === "queue")) {
 
-        countRef.on("value", function(snap) {
-            if (snap) {
-                snapshot.count = snap.val();
-            }
-        });
+                var next = snapshot.users[1];
+                if (next.child(key) === currentUser.uid) {
 
-        usersRef.on("value", function(snap) {
-            if (snap.val()) {
-                snapshot.users = snap;
-                game.updateQueueHTML();
+                    currentUser.inGame = true;
+                    playerRef = playersRef.child(key);
+                    playerRef.onDisconnect().remove();
+                    playerRef.set(currentUser);
+                    userRef.remove();
+                }
 
-                // var x = snap.val().length;
-                // var status = snapshot.status.val();
-                // if ((x < maxCount) && (status = "")) {
-                //     statusRef.set("stopped");
-                //     game.restart();
-                // }
+            } else if ((status === "attack") && (currentUser.inGame)) {
+
+                game.attack();
+
+            } else if ((status  === "resolving") && (currentUser.inGame)) {
+
+                game.checkWin();
             }
         });
 
         playersRef.on("value", function(snap) {
+
             if (snap.val()) {
+
                 snapshot.players = snap;
-                game.updatePlayerHTML();
-                var count = snap.numChildren();
-            } else {
-                var count = 0;
-            }
-            countRef.set(count);
-
-            var status = snapshot.status.val();
-            console.log(count + " players");
-
-            if ((count < maxCount) && (status === "started")) {
-                statusRef.set("stopped");
-                game.restart();
-            } else if (
-              (count === maxCount)
-              && (status === "stopped")
-              && (currentUser.inGame)) {
-                statusRef.set("started");
-                game.startPlaying();
+                game.updatePlayerHTML(snap);
             }
         });
 
-        chatRef.on("value", function(snap) {
+        playersRef.on("child_added", function(snap) {
+
+
+            var count = 0;
+            if (snapshot.players) {
+
+                count = snapshot.players.numChildren();
+            }
+            console.log("added player" + count );
+
+            if ((count === maxCount)
+            && (currentUser.inGame)) {
+
+                statusRef.set("attack");
+
+            } else if ((count < maxCount)
+            && (currentUser.inGame)) {
+
+                $("#banner").text(
+                    "Waiting for "
+                    + maxCount - count
+                    + " Player(s)"
+                );
+            }
+        });
+
+        playersRef.on("child_removed", function(snap) {
+
+            console.log("child removed");
+
             if (snap.val()) {
-                snapshot.chat = snap;
-                game.updateChatHTML();
+
+                game.reset();
+                statusRef.set("queue");
+            }
+        });
+
+        usersRef.on("value", function(snap) {
+
+            if (snap.val()) {
+
+                game.updateQueueHTML(snap);
+
+                var count = 0;
+                if (snapshot.players) {
+
+                    count = snapshot.players.numChildren();
+                }
+            console.log("added user" + status );
+
+                if ((count < maxCount)
+                && (!currentUser.inGame)) {
+
+                    var id = currentUser.id;
+                    var oldRef = database.ref(`/users/${id}`);
+                    var newRef = database.ref(`/players/${id}`);
+
+                    oldRef.remove();
+                    newRef.onDisconnect().remove();
+                    newRef.set(currentUser);
+                }
+            }
+        });
+
+        chatRef.on("child_added", function(snap) {
+
+            if (snap.val()) {
+                game.updateChatHTML(snap);
             }
         });
 
@@ -137,26 +197,20 @@ var fireBase = {
 var game = {
 
     initialize: function() {
-        console.log("gameinit");
 
-        $("#join").on("click", function (event) {
+        $("#join").on("click", function(event) {
+
             event.preventDefault();
-            console.log("joined");
 
-            var time = moment().format("YYYYMMDDhhmmss");
+            var now = moment().format("YYYYMMDDHHmmss");
             var name = $("#name").val().trim();
             $("#name").val("");
 
-
             currentUser.username = name;
             currentUser.score = 0;
-            currentUser.id = time;
-            currentUser.joined = true;
+            currentUser.id = now;
 
-            userRef.remove();
-            userRef = database.ref(`/users/${time}`);
-            //Creates and stores reference to -> a new /users entry in firebase
-            //folder will be removed when user session ends
+            userRef = database.ref(`/users/${now}`);
             userRef.onDisconnect().remove();
             userRef.set(currentUser);
 
@@ -164,34 +218,30 @@ var game = {
             $("#banner").text("Getting Game Ready");
             $(".player, .chat, .message, .queue").removeClass("hide");
             $("#welcome").addClass("hide");
-
-            console.log("check sent by join");
-            game.checkReady();
         });
 
-        $("#send").on("click", function sendChat(event) {
+        $("#send").on("click", function(event) {
             event.preventDefault();
+
+            var now = moment().format("YYYYMMDDHHmmss");
+            var now2 = moment().format("YYYY MMM DD, hh:mm:ss");
+            console.log(now);
             var text = $("#message").val().trim();
             $("#message").val("");
 
-            if (snapshot.chat) {
-                countChat = snapshot.chat.numChildren();
-            } else {
-                countChat = 0;
-            }
-
-            chatRef.child((countChat + 1)).set({
+            chatRef.child(`${now}`).set({
                 username: currentUser.username,
                 message: text,
+                time: now2
             });
         });
     },
 
-    updatePlayerHTML: function() {
-        var i = 0;
+    updatePlayerHTML: function(snap) {
 
-        $(".playerHTML").empty();
-        snapshot.players.forEach(function(childSnap) {
+        var i = 0;
+        snap.forEach(function(childSnap) {
+
             $(`#p${i}Name`).text(childSnap.val().username);
             $(`#p${i}Score`).text(childSnap.val().score);
 
@@ -203,17 +253,19 @@ var game = {
         });
     },
 
-    updateQueueHTML: function() {
+    updateQueueHTML: function(snap) {
+
         $("#queue").empty();
-        var numUsers = snapshot.users.numChildren();
+
+        var numUsers = snap.numChildren();
 
         var i = 1;
-        snapshot.users.forEach(function(childSnap) {
+        snap.forEach(function(childSnap) {
             if (i > maxCount) {
                 var row = $("<tr>");
                 var cell1 = $("<td>");
                 var cell2 = $("<td>");
-                cell1.text(i-maxCount + " - ");
+                cell1.text(i - maxCount + " - ");
                 cell2.text(childSnap.val().username);
                 row.append(cell1, cell2);
                 $("#queue").append(row);
@@ -222,89 +274,54 @@ var game = {
         });
     },
 
-    updateChatHTML: function() {
+    updateChatHTML: function(snap) {
 
+        var message = snap.val().message;
+        var name = snap.val().username;
+        var time = snap.val().time;
+
+        var row = $("<tr>");
+        var cell = $("<td>");
+
+        cell.text(time + " --- " + name + ": " + message);
+
+        row.append(cell);
+        $("#chat").append(row);
+
+        //keeps last message at bottom, scroll up for chat history
+        var tbody = $("#chat")[0];
+        tbody.scrollTop = tbody.scrollHeight;
+    },
+
+    reset: function() {
+            console.log("reset");
+        gameRef.child("attackCount").set(0);
         $("#chat").empty();
-
-        if (snapshot.chat) {
-            snapshot.chat.forEach(function(childSnap){
-                var message = childSnap.val().message;
-                var username = childSnap.val().username;
-                var row = $("<tr>");
-                var cell = $("<td>");
-
-                cell.text(username + ": " + message);
-                row.append(cell);
-                $("#chat").append(row);
-
-                var tbody = $("#chat")[0];
-                tbody.scrollTop = tbody.scrollHeight;
-            });
-        }
-    },
-
-    updateGameHTML: function() {
-    },
-
-    restart: function() {
         chatRef.remove();
-        this.updateChatHTML();
+//-----send a system chat message------//
 
+        var id = currentUser.id;
         currentUser.score = 0;
-        userRef.child("score").set(0);
-        playerRef.child("score").set(0);
-        this.updatePlayerHTML();
+        playersRef.ref(`/${id}/score`).set(0);
     },
 
-    checkReady: function() {
-        console.log("checkReady");
-
-        var status = snapshot.status.val();
-        var count = snapshot.count;
-
-        var i = 1;
-        snapshot.users.forEach(function(childSnap) {
-            console.log("checking "+ i);
-
-            if ((i <= maxCount)
-            && (count <= maxCount)
-            && (!(status === "started"))) {
-                console.log("adding self to game");
-                var key = childSnap.key;
-                if (key = currentUser.id) {
-                    console.log("added");
-                    currentUser.inGame = true;
-                    playerRef = playersRef.child(key);
-                    playerRef.onDisconnect().remove();
-                    playerRef.set(currentUser);
-                    userRef.set(currentUser);
-                }
-
-                return true; //breaks firebase forEach() loop
-            }
-            i++
-        });
-    },
-
-    startPlaying: function() {
+    //allow user to click rock, paper, or scissors
+    attack: function() {
         $("#banner").text("Click Your Weapon");
         // $(".currentUser > .option").text("Rock");
         $(".currentUser > .option").on("click", function() {
-
+            var selection = $(this).data("weapon").trim();
+            attackRef.push({
+                weapon: selection,
+                id: currentUser.id
+            });
         });
     },
 
-    newRound: function() {
-
-    },
-
     checkWin: function() {
-
     },
 }
 
 $(document).ready(function() {
     fireBase.initialize();
 });
-
-

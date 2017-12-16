@@ -179,6 +179,13 @@ input {
   border: 1px solid var(--border-color);
 }
 
+.option {
+  text-align: center;
+  width: 100%;
+  font-size: 2rem;
+
+}
+
 table {
   text-align: left;
   border-collapse: collapse;
@@ -203,7 +210,7 @@ tbody {
 
 /*--- Hide on Game Start ---*/
 .hide {
-  /*display: none;*/
+  display: none;
 }
 
 /*--- Footer ---*/
