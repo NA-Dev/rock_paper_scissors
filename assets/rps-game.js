@@ -53,93 +53,9 @@ var fireBase = {
     getSnapshot: function() {
 
         gameRef = database.ref("/game");
-        statusRef = database.ref("/status");
         usersRef = database.ref("/users");
         playersRef = database.ref("/players");
         chatRef = database.ref("/chat");
-
-        usersRef.on("value", function(snap) {
-
-            var userCount = 0;
-            var playerCount = 0;
-
-            if (snapshot.players) {
-
-                playerCount = snapshot.players.numChildren();
-
-            }
-
-            if (snap.val()) {
-
-                snapshot.users = snap;
-                game.updateQueueHTML(snap);
-
-                userCount = snap.numChildren();
-
-                //this section handles queueing
-                if ((playerCount < maxCount)
-                && (currentUser.status === "inQueue")) {
-
-                    console.log("Adding player from queue");
-
-                    currentUser.status = "inGame";
-
-                    var id = currentUser.id;
-                    var oldRef = database.ref(`/users/${id}`);
-                    var newRef = database.ref(`/players/${id}`);
-
-                    oldRef.remove();
-                    newRef.onDisconnect().remove();
-                    newRef.set(currentUser);
-                }
-            }
-        });
-
-        statusRef.on("value", function(snap) {
-
-            if (snap.val()) {
-
-                snapshot.status = snap;
-                var status = snap.val();
-
-            } else {
-
-                statusRef.set("stopped");
-            }
-
-            console.log("status: " + status );
-
-            if ((status === "queue")
-            && (snapshot.users)) {
-
-                for (var prop in snapshot.users.val()) {
-
-                    var next = prop;
-                    break;
-                }
-
-                if (next = currentUser.id) {
-
-                    var key = currentUser.id;
-                    currentUser.status = "inGame";
-                    playerRef = playersRef.child(key);
-                    playerRef.onDisconnect().remove();
-                    playerRef.set(currentUser);
-                    userRef.remove();
-                }
-
-            } else if ((status === "attack")
-              && (currentUser.status === "inGame")) {
-
-                game.attack();
-
-            }
-
-            // else if ((status  === "resolving") && (currentUser.status === "inGame")) {
-
-            //     game.resolve();
-            // }
-        });
 
         gameRef.on("value", function(snap) {
             console.log("game change");
@@ -149,20 +65,20 @@ var fireBase = {
                 snapshot.game = snap;
             }
 
+            //handles counting attacks until time to resolve turn
             if (snap.hasChild("attacks")) {
+
                 var attackCount = snap.child("attacks").numChildren();
+
             } else {
+
                 attackCount = 0;
             }
 
-            var status = snapshot.status.val();
-
-
-            if ((status === "attack")
+            if ((currentUser.status === "attack")
             && (attackCount === maxCount)) {
 
                 console.log(attackCount + "attacks");
-                statusRef.set("resolving");
 
                 game.resolve(snap.child("attacks"));
             }
@@ -170,33 +86,33 @@ var fireBase = {
 
         playersRef.on("value", function(snap) {
 
+            game.updatePlayerHTML(snap);
+
             var playersCount = 0;
 
             if (snap.val()) {
 
                 snapshot.players = snap;
-                game.updatePlayerHTML(snap);
                 playersCount = snap.numChildren();
             }
 
             console.log("player count: " + playersCount);
 
-            var status = snapshot.status.val();
+            if ((playersCount < maxCount)
+            && (currentUser.stat === "inQueue")) {
 
-            if ((status === "queue")
-            && (playersCount === maxCount)
-            && (currentUser.status === "inGame")) {
-
-                statusRef.set("attack");
+                game.queue();
 
             } else if ((playersCount < maxCount)
-            && (currentUser.status === "inGame")) {
+            && (currentUser.stat === "inGame")) {
+                console.log("banner waiting");
 
-                $("#banner").text(
-                    "Waiting for "
-                    + maxCount - playersCount
-                    + " Player(s)"
-                );
+                $("#banner").text("Waiting for players");
+
+            } else if ((playersCount === maxCount)
+            && (currentUser.stat === "inGame")) {
+
+                game.attack();
             }
         });
 
@@ -207,13 +123,36 @@ var fireBase = {
             if (snap.val()) {
 
                 game.reset();
-                statusRef.set("queue");
+            }
+        });
+
+        usersRef.on("value", function(snap) {
+            console.log("Users change");
+
+            game.updateQueueHTML(snap);
+
+            if (snap.val()) {
+
+                snapshot.users = snap;
+
+                var playersCount = 0;
+                if (snapshot.players) {
+                    playersCount = snapshot.players.numChildren();
+                }
+
+                if ((playersCount < maxCount)
+                && (currentUser.stat === "inQueue")) {
+
+                    game.queue();
+
+                }
             }
         });
 
         chatRef.on("child_added", function(snap) {
 
             if (snap.val()) {
+
                 game.updateChatHTML(snap);
             }
         });
@@ -239,14 +178,12 @@ var game = {
             currentUser.losses = 0;
             currentUser.ties = 0;
             currentUser.id = now;
-            currentUser.status = "inQueue";
+            currentUser.stat = "inQueue";
 
             userRef = database.ref(`/users/${now}`);
             userRef.onDisconnect().remove();
             userRef.set(currentUser);
 
-
-            $("#banner").text("Please wait");
             $(".player, .chat, .message, .queue").removeClass("hide");
             $("#welcome").addClass("hide");
         });
@@ -256,7 +193,6 @@ var game = {
 
             var now = moment().format("YYYYMMDDHHmmss");
             var now2 = moment().format("YYYY MMM DD, hh:mm:ss");
-            console.log(now);
             var text = $("#message").val().trim();
             $("#message").val("");
 
@@ -269,6 +205,8 @@ var game = {
     },
 
     updatePlayerHTML: function(snap) {
+
+        $(".playerHTML").empty();
 
         var i = 0;
         snap.forEach(function(childSnap) {
@@ -287,24 +225,29 @@ var game = {
     },
 
     updateQueueHTML: function(snap) {
+        console.log("updateHTML");
 
         $("#queue").empty();
 
-        var numUsers = snap.numChildren();
+        if (snap.val()) {
 
-        var i = 1;
-        snap.forEach(function(childSnap) {
-            if (i > maxCount) {
+            var numUsers = snap.numChildren();
+
+            var i = 1;
+            snap.forEach(function(childSnap) {
+
                 var row = $("<tr>");
-                var cell1 = $("<td>");
-                var cell2 = $("<td>");
-                cell1.text(i - maxCount + " - ");
-                cell2.text(childSnap.val().username);
-                row.append(cell1, cell2);
+                var cell = $("<td>");
+                cell.text(i + " - " + childSnap.val().username);
+                row.append(cell);
                 $("#queue").append(row);
-            }
-            i++;
-        });
+
+                i++;
+            });
+
+        }
+
+
     },
 
     updateChatHTML: function(snap) {
@@ -327,32 +270,57 @@ var game = {
     },
 
     reset: function() {
-
         console.log("reset");
+
         $("#chat").empty();
         chatRef.remove();
-//-----send a system chat message------//
-
-        var id = currentUser.id;
-        currentUser.wins = 0;
-        currentUser.losses = 0;
-        currentUser.ties = 0;
-
-        playersRef.child(`/${id}/wins`).set(0);
-        playersRef.child(`/${id}/losses`).set(0);
-        playersRef.child(`/${id}/ties`).set(0);
 
         if (gameRef.child("attacks")) {
-            gameRef.child("attacks").remove;
+            gameRef.child("attacks").remove();
         }
+
+        if (currentUser.status === "attack") {
+            currentUser.status === "inGame";
+
+        } else if (currentUser.status === "resolve") {
+            currentUser.status === "inGame";
+        }
+    },
+
+    queue: function() {
+        console.log("Adding player from queue");
+
+        for (var firstID in snapshot.users) {
+
+            var id = currentUser.id;
+
+            if (firstID = currentUser.id) {
+
+                currentUser.stat = "inGame";
+                userRef.remove();
+                playerRef = database.ref(`/players/${id}`);
+                playerRef.onDisconnect().remove();
+                playerRef.set(currentUser);
+            }
+
+            break;
+        }
+
     },
 
     //allow user to click rock, paper, or scissors
     attack: function() {
+        console.log("allow attack");
 
-        $("#banner").text("Click Your Weapon");
+        $("#banner").text("New Round. Choose a weapon.");
+
+        currentUser.status = "attack";
 
         $(".currentUser > .option").on("click", function() {
+
+            //disable onclick until another round of attacks
+            $(".option").addClass("hide");
+
             var selection = $(this).data("weapon").trim();
             var id = currentUser.id;
 
@@ -362,59 +330,71 @@ var game = {
                 weapon: selection
             });
         });
+
+        $(".option").removeClass("hide");
     },
 
     resolve: function(attacksSnap) {
+        console.log("resolving turn");
+
+        currentUser.status = "resolving";
 
         var id = currentUser.id;
         var winCount = snapshot.players.child(`${id}/wins`).val();
         var lossCount = snapshot.players.child(`${id}/losses`).val();
         var tieCount = snapshot.players.child(`${id}/ties`).val();
+        var myAttack, theirAttack, message;
 
         attacksSnap.forEach(function(childSnap) {
 
-            var myAttack, theirAttack;
             var index = childSnap.key;
 
-            if (index === currentUser.id) {
+            if (index === id) {
 
                 myAttack = childSnap.child("weapon").val();
-                console.log(myAttack);
 
             } else {
 
                 theirAttack = childSnap.child("weapon").val();
-                console.log(theirAttack);
             }
-
-            if ((myAttack === "r") && (theirAttack === "s")) {
-              winCount++;
-            } else if ((myAttack === "r") && (theirAttack === "p")) {
-              lossCount++;
-            } else if ((myAttack === "s") && (theirAttack === "r")) {
-              lossCount++;
-            } else if ((myAttack === "s") && (theirAttack === "p")) {
-              winCount++;
-            } else if ((myAttack === "p") && (theirAttack === "r")) {
-              winCount++;
-            } else if ((myAttack === "p") && (theirAttack === "s")) {
-              lossCount++;
-            } else if (myAttack === theirAttack) {
-              tieCount++;
-            }
-
-            // this.reset();
         });
 
-        console.log(winCount, lossCount, tieCount);
+        if ((myAttack === "r") && (theirAttack === "s")) {
+          winCount++;
+          message = "You win. Starting new game..."
+        } else if ((myAttack === "r") && (theirAttack === "p")) {
+          lossCount++;
+          message = "You lose. Starting new game..."
+        } else if ((myAttack === "s") && (theirAttack === "r")) {
+          lossCount++;
+          message = "You lose. Starting new game..."
+        } else if ((myAttack === "s") && (theirAttack === "p")) {
+          winCount++;
+          message = "You win. Starting new game..."
+        } else if ((myAttack === "p") && (theirAttack === "r")) {
+          winCount++;
+          message = "You win. Starting new game..."
+        } else if ((myAttack === "p") && (theirAttack === "s")) {
+          lossCount++;
+          message = "You lose. Starting new game..."
+        } else if (myAttack === theirAttack) {
+          tieCount++;
+          message = "Tie Game. Starting new game..."
+        }
 
         currentUser.wins = winCount;
         currentUser.losses = lossCount;
         currentUser.ties = tieCount;
 
-        userRef.child("wins").set(winCount);
-        userRef.child("losses").set(lossCount);
-        userRef.child("ties").set(tieCount);
+        $("#banner").text(message);
+
+        game.reset();
+
+        setTimeout(function() {
+            playerRef.child("wins").set(winCount);
+            playerRef.child("losses").set(lossCount);
+            playerRef.child("ties").set(tieCount);
+        }, 5000);
     },
 }
 
