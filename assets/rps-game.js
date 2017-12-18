@@ -60,23 +60,29 @@ var fireBase = {
 
         usersRef.on("value", function(snap) {
 
+            var userCount = 0;
+            var playerCount = 0;
+
+            if (snapshot.players) {
+
+                playerCount = snapshot.players.numChildren();
+
+            }
+
             if (snap.val()) {
 
                 snapshot.users = snap;
                 game.updateQueueHTML(snap);
 
-                var count = 0;
-                if (snapshot.players) {
+                userCount = snap.numChildren();
 
-                    count = snapshot.players.numChildren();
-                }
+                //this section handles queueing
+                if ((playerCount < maxCount)
+                && (currentUser.status === "inQueue")) {
 
-                console.log("added user" + count - 1);
+                    console.log("Adding player from queue");
 
-                if ((count < maxCount)
-                && (!currentUser.inGame)) {
-
-                    console.log(currentUser);
+                    currentUser.status = "inGame";
 
                     var id = currentUser.id;
                     var oldRef = database.ref(`/users/${id}`);
@@ -102,31 +108,37 @@ var fireBase = {
             }
 
             console.log("status: " + status );
-            console.log(snapshot.users);
 
-            if (status === "queue") {
-                console.log(snapshot);
+            if ((status === "queue")
+            && (snapshot.users)) {
 
-                var next = snapshot.users[1].id;
+                for (var prop in snapshot.users.val()) {
+
+                    var next = prop;
+                    break;
+                }
+
                 if (next = currentUser.id) {
 
-                    currentUser.inGame = true;
+                    var key = currentUser.id;
+                    currentUser.status = "inGame";
                     playerRef = playersRef.child(key);
                     playerRef.onDisconnect().remove();
                     playerRef.set(currentUser);
                     userRef.remove();
                 }
 
-
-
-            } else if ((status === "attack") && (currentUser.inGame)) {
+            } else if ((status === "attack")
+              && (currentUser.status === "inGame")) {
 
                 game.attack();
 
-            } else if ((status  === "resolving") && (currentUser.inGame)) {
-
-                game.checkWin();
             }
+
+            // else if ((status  === "resolving") && (currentUser.status === "inGame")) {
+
+            //     game.resolve();
+            // }
         });
 
         gameRef.on("value", function(snap) {
@@ -137,53 +149,52 @@ var fireBase = {
                 snapshot.game = snap;
             }
 
-            var attackCount = 0;
-            if (snap.val().attackCount) {
-
-                attackCount = snap.val().attackCount;
+            if (snap.hasChild("attacks")) {
+                var attackCount = snap.child("attacks").numChildren();
+            } else {
+                attackCount = 0;
             }
 
             var status = snapshot.status.val();
+
+
             if ((status === "attack")
             && (attackCount === maxCount)) {
 
-                console.log(attackCount);
+                console.log(attackCount + "attacks");
                 statusRef.set("resolving");
+
+                game.resolve(snap.child("attacks"));
             }
         });
 
         playersRef.on("value", function(snap) {
 
+            var playersCount = 0;
+
             if (snap.val()) {
 
                 snapshot.players = snap;
                 game.updatePlayerHTML(snap);
+                playersCount = snap.numChildren();
             }
-        });
 
-        playersRef.on("child_added", function(snap) {
-
-            var count = 0;
-            if (snap.val()) {
-                console.log("newPlayer" + snap.val());
-                snapshot.players = snap;
-                count = snapshot.players.numChildren();
-            }
-            console.log("added player" + count );
+            console.log("player count: " + playersCount);
 
             var status = snapshot.status.val();
+
             if ((status === "queue")
-            && (count === maxCount)
-            && (currentUser.inGame)) {
+            && (playersCount === maxCount)
+            && (currentUser.status === "inGame")) {
 
                 statusRef.set("attack");
 
-            } else if ((count < maxCount)
-            && (currentUser.inGame)) {
+            } else if ((playersCount < maxCount)
+            && (currentUser.status === "inGame")) {
 
                 $("#banner").text(
                     "Waiting for "
-                    + maxCount - count
+                    + maxCount - playersCount
                     + " Player(s)"
                 );
             }
@@ -191,7 +202,7 @@ var fireBase = {
 
         playersRef.on("child_removed", function(snap) {
 
-            console.log("child removed");
+            console.log("player removed");
 
             if (snap.val()) {
 
@@ -224,15 +235,18 @@ var game = {
             $("#name").val("");
 
             currentUser.username = name;
-            currentUser.score = 0;
+            currentUser.wins = 0;
+            currentUser.losses = 0;
+            currentUser.ties = 0;
             currentUser.id = now;
+            currentUser.status = "inQueue";
 
             userRef = database.ref(`/users/${now}`);
             userRef.onDisconnect().remove();
             userRef.set(currentUser);
 
 
-            $("#banner").text("Getting Game Ready");
+            $("#banner").text("Please wait");
             $(".player, .chat, .message, .queue").removeClass("hide");
             $("#welcome").addClass("hide");
         });
@@ -260,7 +274,9 @@ var game = {
         snap.forEach(function(childSnap) {
 
             $(`#p${i}Name`).text(childSnap.val().username);
-            $(`#p${i}Score`).text(childSnap.val().score);
+            $(`#p${i}Wins`).text(childSnap.val().wins);
+            $(`#p${i}Losses`).text(childSnap.val().losses);
+            $(`#p${i}Ties`).text(childSnap.val().ties);
 
             if (childSnap.val().id === currentUser.id) {
                 $(`#p${i}`).addClass("currentUser");
@@ -313,30 +329,92 @@ var game = {
     reset: function() {
 
         console.log("reset");
-        gameRef.child("attackCount").set(0);
         $("#chat").empty();
         chatRef.remove();
 //-----send a system chat message------//
 
         var id = currentUser.id;
-        currentUser.score = 0;
-        playersRef.child(`/${id}/score`).set(0);
+        currentUser.wins = 0;
+        currentUser.losses = 0;
+        currentUser.ties = 0;
+
+        playersRef.child(`/${id}/wins`).set(0);
+        playersRef.child(`/${id}/losses`).set(0);
+        playersRef.child(`/${id}/ties`).set(0);
+
+        if (gameRef.child("attacks")) {
+            gameRef.child("attacks").remove;
+        }
     },
 
     //allow user to click rock, paper, or scissors
     attack: function() {
+
         $("#banner").text("Click Your Weapon");
-        // $(".currentUser > .option").text("Rock");
+
         $(".currentUser > .option").on("click", function() {
             var selection = $(this).data("weapon").trim();
-            attackRef.push({
-                weapon: selection,
-                id: currentUser.id
+            var id = currentUser.id;
+
+            newAttackRef = gameRef.child(`attacks/${id}`) ;
+            newAttackRef.onDisconnect().remove();
+            newAttackRef.set({
+                weapon: selection
             });
         });
     },
 
-    checkWin: function() {
+    resolve: function(attacksSnap) {
+
+        var id = currentUser.id;
+        var winCount = snapshot.players.child(`${id}/wins`).val();
+        var lossCount = snapshot.players.child(`${id}/losses`).val();
+        var tieCount = snapshot.players.child(`${id}/ties`).val();
+
+        attacksSnap.forEach(function(childSnap) {
+
+            var myAttack, theirAttack;
+            var index = childSnap.key;
+
+            if (index === currentUser.id) {
+
+                myAttack = childSnap.child("weapon").val();
+                console.log(myAttack);
+
+            } else {
+
+                theirAttack = childSnap.child("weapon").val();
+                console.log(theirAttack);
+            }
+
+            if ((myAttack === "r") && (theirAttack === "s")) {
+              winCount++;
+            } else if ((myAttack === "r") && (theirAttack === "p")) {
+              lossCount++;
+            } else if ((myAttack === "s") && (theirAttack === "r")) {
+              lossCount++;
+            } else if ((myAttack === "s") && (theirAttack === "p")) {
+              winCount++;
+            } else if ((myAttack === "p") && (theirAttack === "r")) {
+              winCount++;
+            } else if ((myAttack === "p") && (theirAttack === "s")) {
+              lossCount++;
+            } else if (myAttack === theirAttack) {
+              tieCount++;
+            }
+
+            // this.reset();
+        });
+
+        console.log(winCount, lossCount, tieCount);
+
+        currentUser.wins = winCount;
+        currentUser.losses = lossCount;
+        currentUser.ties = tieCount;
+
+        userRef.child("wins").set(winCount);
+        userRef.child("losses").set(lossCount);
+        userRef.child("ties").set(tieCount);
     },
 }
 
